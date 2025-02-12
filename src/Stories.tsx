@@ -3,7 +3,7 @@ import { Box, Flex, Spinner, Text, Avatar, Progress, VStack, HStack, IconButton 
 import { motion } from "framer-motion";
 import { Volume2, VolumeX } from "lucide-react";
 
-// Types
+// Types for user and media items
 interface User {
   name: string;
   avatar: string;
@@ -29,8 +29,10 @@ interface StoriesPlayerProps {
   accountId: string;
 }
 
+// MotionBox for animations
 const MotionBox = motion(Box);
 
+// Declare global HLS interface
 declare global {
   interface Window {
     Hls: any;
@@ -38,6 +40,7 @@ declare global {
 }
 
 const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
+  // State variables for managing current story and media
   const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
   const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -47,16 +50,17 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
   const [hasPlaybackError, setHasPlaybackError] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
 
-  // Refs
+  // Refs for video element, timers, and HLS instance
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const progressTimerRef = useRef<number | null>(null);
   const longPressRef = useRef<number | null>(null);
   const hlsRef = useRef<any>(null);
 
+  // Current story and media item
   const currentStory = stories[currentStoryIndex];
   const currentMedia = currentStory?.media[currentMediaIndex];
 
-  // Utility Functions
+  // Reset progress bar and clear timer
   const resetProgress = useCallback(() => {
     setProgress(0);
     if (progressTimerRef.current) {
@@ -65,6 +69,7 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
     }
   }, []);
 
+  // Cleanup HLS instance
   const cleanupHls = useCallback(() => {
     if (hlsRef.current) {
       try {
@@ -77,7 +82,7 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
     }
   }, []);
 
-  // Navigation Functions
+  // Navigate to the next media item
   const goToNextMedia = useCallback(() => {
     resetProgress();
     cleanupHls();
@@ -93,6 +98,7 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
     }
   }, [currentMediaIndex, currentStory, currentStoryIndex, stories.length, onClose, resetProgress, cleanupHls]);
 
+  // Navigate to the previous media item
   const goToPrevMedia = useCallback(() => {
     resetProgress();
     cleanupHls();
@@ -105,7 +111,7 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
     }
   }, [currentMediaIndex, currentStoryIndex, stories, resetProgress, cleanupHls]);
 
-  // Progress Management
+  // Start progress bar for media playback
   const startProgress = useCallback(() => {
     resetProgress();
     if (!currentMedia || hasPlaybackError) return;
@@ -123,88 +129,109 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
     }, 100);
   }, [currentMedia, hasPlaybackError, resetProgress, goToNextMedia]);
 
+  // Initialize HLS for video streaming
   // HLS Implementation
   const initHls = useCallback(async (video: HTMLVideoElement, streamUrl: string) => {
+    // Check if HLS.js is available in the global window object
     if (!window.Hls) {
       throw new Error('HLS.js is not loaded');
     }
+
+    // Create a new HLS instance with configuration options
     const hls = new window.Hls({
-      maxBufferLength: 10,
-      maxMaxBufferLength: 20,
-      enableWorker: true,
-      autoStartLoad: true,
-      startPosition: -1,
-      debug: false,
-      fragLoadingTimeOut: 20000,
-      manifestLoadingTimeOut: 20000,
-      levelLoadingTimeOut: 20000,
-      fragLoadingMaxRetry: 6,
-      manifestLoadingMaxRetry: 6,
-      levelLoadingMaxRetry: 6,
+      maxBufferLength: 10, // Maximum buffer length in seconds
+      maxMaxBufferLength: 20, // Maximum buffer length that can be reached
+      enableWorker: true, // Use web workers for HLS processing
+      autoStartLoad: true, // Automatically start loading the video
+      startPosition: -1, // Start position in seconds (-1 means from the start)
+      debug: false, // Disable debug logs
+      fragLoadingTimeOut: 20000, // Timeout for fragment loading in milliseconds
+      manifestLoadingTimeOut: 20000, // Timeout for manifest loading in milliseconds
+      levelLoadingTimeOut: 20000, // Timeout for level loading in milliseconds
+      fragLoadingMaxRetry: 6, // Maximum number of retries for fragment loading
+      manifestLoadingMaxRetry: 6, // Maximum number of retries for manifest loading
+      levelLoadingMaxRetry: 6, // Maximum number of retries for level loading
     });
+
+    // Store the HLS instance in a ref for later use
     hlsRef.current = hls;
+
+    // Return a promise that resolves when the video is ready to play
     return new Promise((resolve, reject) => {
-      let hasResolved = false;
+      let hasResolved = false; // Flag to track if the promise has resolved
+
+      // Set a timeout to reject the promise if initialization takes too long
       const timeoutId = setTimeout(() => {
         if (!hasResolved) {
           console.error('HLS initialization timeout - cleaning up');
-          hls.destroy();
-          reject(new Error('HLS initialization timeout'));
+          hls.destroy(); // Destroy the HLS instance to free resources
+          reject(new Error('HLS initialization timeout')); // Reject the promise with an error
         }
-      }, 60000);
+      }, 60000); // Timeout set to 60 seconds
+
+      // Cleanup function to remove event listeners and clear the timeout
       const cleanup = () => {
-        clearTimeout(timeoutId);
-        hls.off(window.Hls.Events.MEDIA_ATTACHED);
-        hls.off(window.Hls.Events.MANIFEST_PARSED);
-        hls.off(window.Hls.Events.ERROR);
+        clearTimeout(timeoutId); // Clear the timeout
+        hls.off(window.Hls.Events.MEDIA_ATTACHED); // Remove MEDIA_ATTACHED event listener
+        hls.off(window.Hls.Events.MANIFEST_PARSED); // Remove MANIFEST_PARSED event listener
+        hls.off(window.Hls.Events.ERROR); // Remove ERROR event listener
       };
+
+      // Event listener for when the media is attached to the HLS instance
       hls.on(window.Hls.Events.MEDIA_ATTACHED, () => {
         console.log('HLS: Media attached');
       });
+
+      // Event listener for when the manifest is parsed
       hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
         console.log('HLS: Manifest parsed');
+        // Attempt to play the video
         video.play().then(() => {
-          hasResolved = true;
-          cleanup();
-          resolve(hls);
+          hasResolved = true; // Set the resolved flag to true
+          cleanup(); // Cleanup event listeners and timeout
+          resolve(hls); // Resolve the promise with the HLS instance
         }).catch((error) => {
           console.error('Failed to play video after manifest parsed:', error);
-          cleanup();
-          reject(error);
+          cleanup(); // Cleanup event listeners and timeout
+          reject(error); // Reject the promise with the error
         });
       });
+
+      // Event listener for handling HLS errors
       hls.on(window.Hls.Events.ERROR, (event: any, data: any) => {
         console.error('HLS Error:', data);
-        if (data.fatal) {
+        if (data.fatal) { // Check if the error is fatal
           switch (data.type) {
             case window.Hls.ErrorTypes.NETWORK_ERROR:
               console.log('HLS: Fatal network error... trying to recover');
-              hls.startLoad();
+              hls.startLoad(); // Attempt to recover from network error
               break;
             case window.Hls.ErrorTypes.MEDIA_ERROR:
               console.log('HLS: Fatal media error... trying to recover');
-              hls.recoverMediaError();
+              hls.recoverMediaError(); // Attempt to recover from media error
               break;
             default:
               console.error('HLS: Fatal error... cannot recover');
-              cleanup();
-              hls.destroy();
-              reject(new Error(`HLS fatal error: ${data.type}`));
+              cleanup(); // Cleanup event listeners and timeout
+              hls.destroy(); // Destroy the HLS instance
+              reject(new Error(`HLS fatal error: ${data.type}`)); // Reject the promise with an error
               break;
           }
         }
       });
+
+      // Attempt to load the video source and attach it to the media element
       try {
-        hls.loadSource(streamUrl);
-        hls.attachMedia(video);
+        hls.loadSource(streamUrl); // Load the video source URL
+        hls.attachMedia(video); // Attach the video element to the HLS instance
       } catch (error) {
-        cleanup();
-        reject(error);
+        cleanup(); // Cleanup event listeners and timeout
+        reject(error); // Reject the promise with the error
       }
     });
   }, []);
 
-  // Video Loading and Management
+  // Load and manage video playback
   useEffect(() => {
     if (!currentMedia || currentMedia.type !== "video" || !videoRef.current) return;
     setIsLoading(true);
@@ -237,7 +264,7 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
     };
   }, [currentMedia, initHls, cleanupHls, goToNextMedia]);
 
-  // Progress Management
+  // Manage progress bar based on playback state
   useEffect(() => {
     if (!isPaused && !isLoading && !isScrubbing && !hasPlaybackError) {
       startProgress();
@@ -245,7 +272,7 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
     return resetProgress;
   }, [currentMedia, isPaused, isLoading, isScrubbing, hasPlaybackError, startProgress, resetProgress]);
 
-  // Touch Handlers
+  // Handle touch interactions for navigation
   const handleTouchStart = (e: React.TouchEvent) => {
     e.preventDefault();
     setIsPaused(true);
@@ -273,7 +300,7 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
     setIsScrubbing(false);
   }, [isScrubbing, goToPrevMedia, goToNextMedia]);
 
-  // Media Loading Handler
+  // Handle media loaded event
   const handleMediaLoaded = useCallback(() => {
     setIsLoading(false);
     if (currentMedia?.type === "video" && videoRef.current) {
@@ -281,7 +308,7 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
     }
   }, [currentMedia]);
 
-  // Mute/Unmute Handler
+  // Toggle mute state for video
   const toggleMute = () => {
     setIsMuted((prev) => !prev);
     if (videoRef.current) {
@@ -289,7 +316,7 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
     }
   };
 
-  // Cleanup
+  // Cleanup on component unmount
   useEffect(() => {
     return () => {
       if (longPressRef.current) {
@@ -302,6 +329,7 @@ const StoriesPlayer = ({ stories, onClose, accountId }: StoriesPlayerProps) => {
     };
   }, [cleanupHls]);
 
+  // Render component
   if (!currentStory || !currentMedia) {
     return null;
   }
